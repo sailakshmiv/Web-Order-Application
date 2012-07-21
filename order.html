@@ -1,0 +1,362 @@
+<html>
+<head>
+	<link rel="stylesheet" type="text/css" href="style.css"/>
+	<script type="text/javascript" src="http://code.jquery.com/jquery-1.7.2.js"></script>
+	<script type="text/javascript" src="/socket.io/socket.io.js"></script>
+	<script type="text/javascript" src="/js/dimmer.js"></script>
+	<script type="text/javascript" src="/js/searchbox.js"></script>
+	<script type="text/javascript" src="/js/dialog.js"></script>
+	<script type="text/javascript" src="/js/confirmation.js"></script>
+
+	<script>
+		$(document).ready(function()
+		{
+			var id;
+
+			var modified = false;
+			var new_customer = false;
+			var alternate_address = false;
+
+			var socket = io.connect('localhost/db');
+			initializeDimmer();			
+			initializeSearchbox();
+			initializeDialog();
+			initializeConfirmation();
+
+			//Hide the delivery form (this will be made visible if we need to specify a secondary address for delivery)
+			$("#delivery").hide();
+
+			//Delay for a moment to display the empty form, then open the search form.
+			setTimeout(searchForCustomer, 50);
+
+
+			function searchForCustomer()
+			{
+				openSearchbox("Enter customer's phone number:", instantSearch, receiveSearchResult);
+				enableDimmer();
+			};
+
+			//Called by the search dialog on keypresses to act as instant search
+			function instantSearch()
+			{
+				socket.emit('search_customer_by_phone_number', {phone_number: getSearchboxQuery()});
+			}
+
+			function clearForm()
+			{
+					$("#input-name").val("");
+					$("#input-phonenumber").val("");
+					$("#input-streetaddress").val("");
+					$("#input-city").val("");
+					$("#input-zipcode").val("");
+					$("#input-state").val("");
+			}
+		
+			//Called by the search dialog upon close
+			function receiveSearchResult(customer_id)
+			{
+				if (customer_id !== -1)
+				{
+					socket.emit('search_by_customer_id', {id: customer_id});
+					
+					//store the customer_id so we can use it later
+					id = customer_id;
+				}
+				else
+				{
+					//We have a new customer, so let's make the prompt proper
+					new_customer = true;
+					
+					clearForm();					
+					$("#continue").html("Continue (Save New Customer)");
+				}
+			
+				disableDimmer();
+			}
+
+			function specifyAlternateAddress()
+			{
+				//make that we're using an alternate address
+				alternate_address = true;
+			
+				$("#delivery").slideDown("slow").show("slow");
+			}
+			
+			function validateCustomerInfo()
+			{
+				var valid = true;
+				
+				if ($("#input-name").val() == "")
+				{
+					valid = false;
+				}
+				if ($("#input-phonenumber").val() == "")
+				{
+					valid = false;
+				}				
+				if ($("#input-streetaddress").val() == "")
+				{
+					valid = false;
+				}
+				if ($("#input-city").val() == "")
+				{
+					valid = false;
+				}
+				if ($("#input-zipcode").val() == "")
+				{
+					valid = false;
+				}
+				if ($("#input-state").val() == "")
+				{
+					valid = false;
+				}
+				
+				return valid;
+			}
+			
+			function validateDeliveryAddress()
+			{
+				var valid = true;
+				
+				if ($("#input-altstreetaddress").val() == "")
+				{
+					valid = false;
+				}
+				if ($("#input-altcity").val() == "")
+				{
+					valid = false;
+				}
+				if ($("#input-altzipcode").val() == "")
+				{
+					valid = false;
+				}
+				if ($("#input-altstate").val() == "")
+				{
+					valid = false;
+				}
+
+				return valid;
+			}
+
+			function saveOrder()
+			{
+				var order = {};
+				order.customer_id = id;
+				order.delivery_status = 1;
+				
+				if (alternate_address == true)
+				{
+					order.delivery_street_address = $("#input-altstreetaddress").val();
+					order.delivery_city = $("#input-altcity").val();
+					order.delivery_zip_code = $("#input-altzipcode").val();
+					order.delivery_state = $("#input-altstate").val();
+				}
+				else
+				{
+					order.delivery_street_address = $("#input-streetaddress").val();
+					order.delivery_city = $("#input-city").val();
+					order.delivery_zip_code = $("#input-zipcode").val();
+					order.delivery_state = $("#input-state").val();
+				}
+				
+				order.driver_id = 0;
+
+				socket.emit("create_order_information", order);
+				
+				openConfirmation("The order has been placed successfully.", returnToMenu);
+			}
+
+			function returnToMenu()
+			{
+				window.location.href = "/";
+			}
+
+			function saveCustomer()
+			{
+				var customer_info = {};
+				customer_info.name = $("#input-name").val();
+				customer_info.phone_number = $("#input-phonenumber").val();
+				customer_info.street_address = $("#input-streetaddress").val();
+				customer_info.city = $("#input-city").val();
+				customer_info.zip_code = $("#input-zipcode").val();
+				customer_info.state = $("#input-state").val();
+
+				socket.emit("create_customer_information", customer_info);				
+			}
+
+			function saveChanges()
+			{
+				var customer_info = {};
+				customer_info.name = $("#input-name").val();
+				customer_info.phone_number = $("#input-phonenumber").val();
+				customer_info.street_address = $("#input-streetaddress").val();
+				customer_info.city = $("#input-city").val();
+				customer_info.zip_code = $("#input-zipcode").val();
+				customer_info.state = $("#input-state").val();
+				customer_info.id = id;
+
+				socket.emit("update_customer_information", customer_info);				
+			}
+
+			$("#searchbutton").click(function()
+			{
+				//Reset the new customer check (this will be set if the null result is clicked)
+				new_customer = false;
+				
+				//Also, let's reset the prompt
+				$("#continue").html("Continue");
+				
+				//begin a search!
+				searchForCustomer();
+			});
+
+			//Show the the prompt, then decide whether or not to show the delivery address specifier
+			$("#continue").click(function()
+			{
+				//is our form info valid? If not, let's perster the user.
+				if (!validateCustomerInfo())
+				{
+					enableDimmer();
+					
+					openConfirmation("Please enter all required fields.", function()
+					{
+						disableDimmer();
+					});
+
+					//bail.
+					return;
+				}
+
+				$("#information").slideUp("slow").hide("slow");
+
+				openDialog("Will the customer be delivering to their home address?", saveOrder, specifyAlternateAddress);
+
+				//store our updated values locally before pushing
+				name = $("#input-name").val();
+				phone_number = $("#input-phonenumber").val();
+				street_address = $("#input-streetaddress").val();
+				city = $("#input-city").val();
+				zip_code = $("#input-zipcode").val();
+				state = $("#input-state").val();
+								
+				//if we've got a new customer, let's write them to the database
+				if (new_customer == true)
+				{				
+					saveCustomer();
+				}
+				//if we've modified anything, let's save our changes
+				if (modified == true && new_customer == false)
+				{
+					saveChanges();
+				}				
+			});
+
+			$("#delivery > #confirm").click(function()
+			{
+				//is our form info valid? If not, let's perster the user.
+				if (!validateDeliveryAddress())
+				{
+					enableDimmer();
+					
+					openConfirmation("Please enter all required fields.", function()
+					{
+						disableDimmer();
+					});
+
+					//bail.
+					return;
+				}
+			
+				$("#delivery").hide("slow");
+				saveOrder();
+			});
+			
+			socket.on('customer_phone_number_search_results', function (data)
+			{				
+				clearSearchboxResults();
+				
+				for (var i in data)
+				{
+					var gadget = data[i];
+					addSearchboxResult(gadget.name, gadget.id);
+				}
+			});
+
+			socket.on('customer_information_result', function (data)
+			{
+				if (data !== [])
+				{
+					var name = data[0].name;
+					var phone_number = data[0].phone_number;
+					var street_address = data[0].street_address;
+					var city = data[0].city;
+					var zip_code = data[0].zip_code;
+					var state = data[0].state;
+
+					//Populate the inputs with data from the database
+					$("#input-name").val(name);
+					$("#input-phonenumber").val(phone_number);
+					$("#input-streetaddress").val(street_address);
+					$("#input-city").val(city);
+					$("#input-zipcode").val(zip_code);
+					$("#input-state").val(state);
+				}
+			});
+
+			socket.on('customer_creation_result', function (data)
+			{				
+				id = data.insertId;
+			});
+
+
+			//If anything is typed into the input fields, change button to mention that data will be saved
+			$("td > input").keyup(function()
+			{
+				modified = true;
+				
+				if (new_customer != true)
+				{
+					$("#continue").html("Continue (Save Changes)");
+				}
+			});
+
+		});	
+	</script>
+</head>
+<body>
+<div id="home" class="form">
+	<h2 style="text-align: center;"><a href="/">Back to Menu</a></h1>
+</div>
+<div id="menu" class="form">
+	<div id="searchbutton" class="button" style="margin-left: auto; margin-right: auto;">Search</div>
+</div>
+<div id="information" class="form">
+	<h1 style="text-align: center;">Customer Information</h1>
+	<table style="margin-left: auto; margin-right: auto;">
+		<tr><td><span style="font-weight: bold;">Basic Information</span><br/></td></tr>
+		<tr><td><span>Name</span></td><td><input id="input-name" type="text"/></td></tr>
+		<tr><td><span>Phone Number</span></td><td><input id="input-phonenumber" maxlength="10" type="text"/></td></tr>		
+		<tr><td><span style="font-weight: bold;">Address</span><br/></td></tr>
+		<tr><td><span>Street Address</span></td><td><input id="input-streetaddress" type="text"/></td></tr>
+		<tr><td><span>City</span></td><td><input id="input-city" type="text"/></td></tr>
+		<tr><td><span>Zip Code</span></td><td><input id="input-zipcode" type="text"/></td></tr>
+		<tr><td><span>State</span></td><td><input id="input-state" type="text"/></td></tr>
+	</table>
+	<br/>
+	<div id="continue" class="button" style="margin-left: auto; margin-right: auto;">Continue</div>
+</div>
+<div id="delivery" class="form">
+	<h1 style="text-align: center;">Delivery Address</h1>
+	<table style="margin-left: auto; margin-right: auto;">	
+		<tr><td><span style="font-weight: bold;">Address</span><br/></td></tr>
+		<tr><td><span>Street Address</span></td><td><input id="input-altstreetaddress" type="text"/></td></tr>
+		<tr><td><span>City</span></td><td><input id="input-altcity" type="text"/></td></tr>
+		<tr><td><span>Zip Code</span></td><td><input id="input-altzipcode" type="text"/></td></tr>
+		<tr><td><span>State</span></td><td><input id="input-altstate" type="text"/></td></tr>
+	</table>
+	<br/>
+	<div id="confirm" class="button" style="margin-left: auto; margin-right: auto;">Confirm</div>
+</div>
+
+</body>
+</html>

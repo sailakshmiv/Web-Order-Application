@@ -1,0 +1,202 @@
+<html>
+<head>
+	<link rel="stylesheet" type="text/css" href="style.css"/>
+	<script type="text/javascript" src="http://code.jquery.com/jquery-1.7.2.js"></script>
+	<script type="text/javascript" src="/socket.io/socket.io.js"></script>
+	<script type="text/javascript" src="/js/dimmer.js"></script>
+	<script type="text/javascript" src="/js/searchbox.js"></script>
+	<script type="text/javascript" src="/js/dialog.js"></script>
+	<script type="text/javascript" src="/js/confirmation.js"></script>
+
+	<script>
+		var delivery_statuses = [];
+		var drivers = [];
+		var customers = [];
+		
+		var active_order_id;
+		var active_element;
+		
+		$(document).ready(function()
+		{
+			var socket = io.connect('localhost/db');
+			initializeDimmer();			
+			initializeSearchbox();
+			initializeDialog();
+			initializeConfirmation();
+
+			socket.emit('request_delivery_statuses', {})
+			socket.emit('request_driver_names', {})
+			socket.emit('request_customer_names', {})
+
+
+			function searchForDriver()
+			{
+				//dim and open the searchbox
+				enableDimmer();
+				openSearchbox("Enter employee name:", instantSearch, receiveSearchResult);
+			}
+
+			//Called by the search dialog on keypresses to act as instant search
+			function instantSearch()
+			{
+				socket.emit("search_driver_by_name", {name: getSearchboxQuery()});
+			}
+			
+			//Called by the search dialog upon close
+			function receiveSearchResult(driver_id)
+			{
+				//let's turn the lights back on
+				disableDimmer();
+
+				//if we've actually picked a driver, let's update delivery status and move forward.
+				if (driver_id != -1)
+				{					
+					socket.emit("update_delivery_status", {id: active_order_id, driver_id: driver_id, delivery_status: 2})
+					active_element.hide("slow");
+				}
+			}
+			
+			//Pass the status id to filter
+			function filterByStatus(id)
+			{
+				var data = {};
+				data.status = id;
+				socket.emit("search_orders_by_status", data);
+			}
+			
+			function createOrderElement(customer_name, order_id, street_address, city, zip_code, state, delivery_status, driver_name)
+			{
+				var element = "<div class=\"form\"><h2 style=\"text-align: center;\">Order Information</h2><table style=\"margin-left: auto; margin-right: auto;\"><tr><td><span style=\"font-weight: bold;\">Customer Information</span><br/></td></tr><tr><td><span>Name</span></td><td><span id=\"ordername\">" + customer_name + "</span></td></tr><tr><td><span style=\"font-weight: bold;\">Address</span><br/></td></tr><tr><td><span>Order ID</span></td><td><span id=\"orderid\">" + order_id + "</span></td></tr><tr><td><span>Street Address</span></td><td><span id=\"orderstreetaddress\">" + street_address + "</span></td></tr><tr><td><span>City</span></td><td><span id=\"ordercity\">" + city + "</span></td></tr><tr><td><span>Zip Code</span></td><td><span id=\"orderzipcode\">" + zip_code + "</span></td></tr><tr><td><span>State</span></td><td><span id=\"orderstate\">" + state + "</span></td></tr><tr><td><span style=\"font-weight: bold;\">Info</span><br/></td></tr><tr><td><span>Delivery Status</span></td><td><span id=\"orderdeliverystatus\">" + delivery_status + "</span></td></tr></tr><tr><td><span>Driver Name</span></td><td><span id=\"orderdrivername\">" + driver_name + "</span></td></tr></table><div id=\"markoutfordelivery\" class=\"button\" style=\"margin-left: auto; margin-right: auto;\">Set Out for Delivery</div><div id=\"markcompleted\" class=\"button\" style=\"margin-left: auto; margin-right: auto;\">Set Completed</div></div>";
+
+				$("#orders").append(element);
+				
+				$("#orders").children().last().data("order_id", order_id);
+				
+				$("#orders").children().last().children("#markoutfordelivery").click(function(event)
+				{
+					//Mark this as the active order id
+					active_order_id = $(event.target).parent().data("order_id");
+					
+					//Mark this as the active element
+					active_element = $(event.target).parent();
+					
+					//Begin the driver search
+					searchForDriver();
+				});
+				
+				$("#orders").children().last().children("#markcompleted").click(function(event)
+				{
+					socket.emit("complete_delivery", {id: order_id})
+					$(event.target).parent().hide("slow");
+				});				
+			}
+
+
+			$("#filterselector").change(function()
+			{
+				filterByStatus($("#filterselector option:selected").val());
+			})
+
+			socket.on('receive_delivery_statuses', function (data)
+			{			
+				for (var i in data)
+				{
+					delivery_statuses[data[i].id] = data[i].status;
+				}
+				
+			});
+
+			socket.on('receive_driver_names', function (data)
+			{			
+				for (var i in data)
+				{
+					drivers[data[i].id] = data[i].name;
+				}
+			});
+			
+			socket.on('receive_customer_names', function (data)
+			{			
+				for (var i in data)
+				{
+					customers[data[i].id] = data[i].name;
+				}
+			});
+	
+			socket.on('order_search_results', function(data)
+			{							
+				//fade the old results out so the change is apparent and gradual.
+				$("#orders").hide("slow");
+				
+				//clear the existing results
+				$("#orders").html("");
+				
+				for (var i in data)
+				{
+					var customer_name = customers[data[i].customer_id];
+					var order_id = data[i].id;
+					var street_address = data[i].delivery_street_address;
+					var city = data[i].delivery_city;
+					var zip_code = data[i].delivery_zip_code;
+					var state = data[i].delivery_state;
+					var delivery_status = delivery_statuses[data[i].delivery_status];
+					var driver_name = drivers[data[i].driver_id];
+					
+					createOrderElement(customer_name, order_id, street_address, city, zip_code, state, delivery_status, driver_name);
+				}
+				
+				//Let's do a small amount of sanitization on the generated elements to prevent redundancy
+				var status_filter = $("#filterselector option:selected").val();
+
+				if (status_filter == "1")
+				{
+					$("#orders > div > #markcompleted").hide();				
+				}
+				else if (status_filter == "2")
+				{
+					$("#orders > div > #markoutfordelivery").hide();
+				}
+				else if (status_filter == "3")
+				{
+					$("#orders > div > #markoutfordelivery").hide();
+					$("#orders > div > #markcompleted").hide();				
+				}
+				
+				//fade the new results in now that the element has been built
+				$("#orders").show("slow");
+			});
+			
+			socket.on('driver_name_search_results', function (data)
+			{				
+				clearSearchboxResults();
+				
+				for (var i in data)
+				{
+					var gadget = data[i];
+					addSearchboxResult(gadget.name, gadget.id);
+				}
+			});			
+			
+			//Force first filter
+			filterByStatus($("#filterselector option:selected").val());
+		});	
+	</script>
+</head>
+<body>
+<div id="home" class="form">
+	<h2 style="text-align: center;"><a href="/">Back to Menu</a></h1>
+</div>
+<div id="menu" class="form">
+	<h1 style="text-align: center;">Manage Orders</h1>
+	<div style="width: 50%; margin-left: 25%; margin-right: 25%;">
+		<span style="font-weight: bold; width: 25%;">Filter by </span>
+		<select id="filterselector" style="width: 75%;">
+			<option value="1">Ready for Delivery</option>
+			<option value="2">Out for Delivery</option>
+			<option value="3">Complete</option>
+		</select>
+	</div>
+</div>
+<div id="orders">
+</div>
+</body>
+</html>

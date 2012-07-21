@@ -1,0 +1,19 @@
+<html>
+<head>
+	<link rel="stylesheet" type="text/css" href="style.css"/>
+	<script type="text/javascript" src="http://code.jquery.com/jquery-1.7.2.js"></script>
+	<script type="text/javascript" src="/socket.io/socket.io.js"></script>
+	<script>
+		$(document).ready(function()
+		{
+			var socket = io.connect('localhost/db');			
+		});
+			
+	
+	</script>
+</head>
+<body>
+	<a href="/placeorder"><div class="bigbutton" style="margin-left:auto; margin-right:auto;">New Order</div></a>
+	<a href="/manageorders"><div class="bigbutton" style="margin-left:auto; margin-right:auto;">Manage Orders</div></a>
+</body>
+</html>
