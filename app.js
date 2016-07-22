@@ -2,10 +2,10 @@ var app = require('express').createServer()
 var io = require('socket.io').listen(app);
 var mysql = require("mysql");
 
-var HOST = "loganmeers.com";
+var HOST = "localhost";
 var PORT = 3306;
 var USER = "root";
-var PASSWORD = "notsecure";
+var PASSWORD = "root";
 var DATABASE = "test";
 
 //Connect to database server
